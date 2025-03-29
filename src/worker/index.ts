@@ -5,6 +5,7 @@
 
 // Import types
 import { Difficulty } from '../client/game/types';
+import { ExecutionContext } from '@cloudflare/workers-types';
 
 // Environment variables interface
 interface Env {
@@ -14,7 +15,7 @@ interface Env {
 
 // Event listener for fetch events
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     // Allow CORS for development
     if (request.method === 'OPTIONS') {
       return handleCORS();
@@ -525,7 +526,7 @@ function evaluateDirection(board: number[][], x: number, y: number, dx: number, 
 /**
  * Handle static file requests
  */
-async function handleStaticFiles(request: Request, path: string): Promise<Response> {
+async function handleStaticFiles(_request: Request, path: string): Promise<Response> {
   // Serve index.html for root path
   if (path === '/' || path === '/index.html') {
     // In a real deployment, you would serve the built index.html
