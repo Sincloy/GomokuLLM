@@ -12,10 +12,8 @@ ENVIRONMENT = "production"
 # Secret variables should be set using wrangler secret put command
 # wrangler secret put GOMOKU_AI_API_KEY
 
-[[routes]]
-pattern = "/"
-script = "src/worker/index.ts"
-
-[[routes]]
-pattern = "/api/*"
-script = "src/worker/index.ts"
+# 新的路由格式
+routes = [
+  "/",
+  "/api/*"
+]
