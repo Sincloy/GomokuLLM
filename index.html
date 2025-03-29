@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gomoku - By Sincloy Games</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen font-sans">
+  <div class="container mx-auto px-4 py-6">
+    <header class="mb-6 text-center">
+      <h1 class="text-3xl font-bold text-gray-800">现代化五子棋</h1>
+      <p class="text-gray-600">挑战AI，看谁更胜一筹</p>
+    </header>
+
+    <main class="mb-8">
+      <div class="lg:flex lg:space-x-6">
+        <div class="lg:w-2/3">
+          <div class="bg-white rounded-lg shadow-lg p-4 mb-6">
+            <div class="board-container">
+              <div id="board" class="board rounded-lg overflow-hidden shadow-inner"></div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="lg:w-1/3">
+          <div class="bg-white rounded-lg shadow-lg p-4 mb-6">
+            <h2 class="text-xl font-semibold mb-4 text-gray-800">游戏状态</h2>
+            <div class="mb-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-medium">当前玩家:</span>
+                <div id="current-player" class="flex items-center">
+                  <div class="w-6 h-6 rounded-full bg-black mr-2"></div>
+                  <span>黑棋 (你)</span>
+                </div>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="font-medium">游戏状态:</span>
+                <span id="game-status" class="text-green-600 font-medium">进行中</span>
+              </div>
+            </div>
+            <div id="thinking-indicator" class="hidden mb-4 p-2 bg-blue-50 text-blue-700 rounded-lg">
+              <div class="flex items-center">
+                <svg class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>AI 正在思考...</span>
+              </div>
+            </div>
+            <div class="flex space-x-2">
+              <button id="restart-btn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition btn-3d">
+                重新开始
+              </button>
+              <button id="undo-btn" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-lg transition btn-3d" disabled>
+                悔棋
+              </button>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-lg shadow-lg p-4 mb-6">
+            <div class="flex justify-between items-center mb-4">
+              <h2 class="text-xl font-semibold text-gray-800">设置</h2>
+              <button id="settings-toggle" class="text-gray-500 hover:text-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+            <div id="settings-panel" class="settings-panel">
+              <div class="mb-4">
+                <label class="block text-gray-700 mb-2">AI 难度</label>
+                <div class="flex space-x-2">
+                  <button class="difficulty-btn flex-1 py-1 px-3 border border-gray-300 rounded-lg bg-gray-100" data-difficulty="easy">简单</button>
+                  <button class="difficulty-btn flex-1 py-1 px-3 border border-gray-300 rounded-lg bg-gray-100" data-difficulty="medium">中等</button>
+                  <button class="difficulty-btn flex-1 py-1 px-3 border border-gray-300 rounded-lg bg-blue-100 border-blue-500" data-difficulty="hard">困难</button>
+                </div>
+              </div>
+              <div class="mb-4">
+                <label class="block text-gray-700 mb-2">先手方</label>
+                <div class="flex space-x-2">
+                  <button class="first-move-btn flex-1 py-1 px-3 border border-gray-300 rounded-lg bg-blue-100 border-blue-500" data-first="player">玩家</button>
+                  <button class="first-move-btn flex-1 py-1 px-3 border border-gray-300 rounded-lg bg-gray-100" data-first="ai">AI</button>
+                </div>
+              </div>
+              <div class="mb-4">
+                <label class="block text-gray-700 mb-2">AI 类型</label>
+                <div class="flex space-x-2">
+                  <button class="ai-type-btn flex-1 py-1 px-3 border border-gray-300 rounded-lg bg-blue-100 border-blue-500" data-type="local">本地算法</button>
+                  <button class="ai-type-btn flex-1 py-1 px-3 border border-gray-300 rounded-lg bg-gray-100" data-type="llm">LLM API</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-lg shadow-lg p-4">
+            <h2 class="text-xl font-semibold mb-4 text-gray-800">游戏记录</h2>
+            <div id="game-history" class="h-40 overflow-y-auto text-sm text-gray-600 space-y-1">
+              <!-- 游戏记录将在这里显示 -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <footer class="text-center text-gray-500 text-sm">
+      <p>&copy; 2025 现代化五子棋游戏 | Powered by Cloudflare Workers</p>
+    </footer>
+  </div>
+
+  <!-- 游戏结束弹窗 -->
+  <div id="game-end-modal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4 transform transition-all">
+      <div class="text-center mb-4">
+        <h3 id="modal-title" class="text-2xl font-bold mb-2 text-gray-800">游戏结束</h3>
+        <p id="modal-message" class="text-gray-600">黑棋胜利！</p>
+      </div>
+      <div class="flex justify-center space-x-4">
+        <button id="modal-close" class="bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition">
+          关闭
+        </button>
+        <button id="modal-restart" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition">
+          再来一局
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/client/index.ts"></script>
+</body>
+</html>

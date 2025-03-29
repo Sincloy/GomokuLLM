@@ -1,0 +1,21 @@
+name = "gomoku-llm"
+main = "src/worker/index.ts"
+compatibility_date = "2024-03-29"
+
+[build]
+command = "npm run build:worker"
+
+[vars]
+# Public environment variables can be set here
+ENVIRONMENT = "production"
+
+# Secret variables should be set using wrangler secret put command
+# wrangler secret put GOMOKU_AI_API_KEY
+
+[[routes]]
+pattern = "/"
+script = "src/worker/index.ts"
+
+[[routes]]
+pattern = "/api/*"
+script = "src/worker/index.ts"

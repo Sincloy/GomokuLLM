@@ -1,0 +1,39 @@
+{
+  "name": "gomoku-llm",
+  "version": "1.0.0",
+  "description": "Modern Gomoku game with local AI and LLM integration",
+  "type": "module",
+  "main": "dist/client/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "build:worker": "wrangler build",
+    "deploy:worker": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "gomoku",
+    "game",
+    "ai",
+    "llm",
+    "cloudflare"
+  ],
+  "author": "Sincloy Games",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240320.1",
+    "@types/node": "^20.11.30",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.4.3",
+    "vite": "^5.2.6",
+    "vitest": "^1.4.0",
+    "wrangler": "^3.37.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.8"
+  }
+}
