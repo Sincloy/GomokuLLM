@@ -11,6 +11,7 @@ import { ExecutionContext } from '@cloudflare/workers-types';
 interface Env {
   GOMOKU_AI_API_KEY?: string;
   ENVIRONMENT?: string;
+  ASSETS: { fetch: (request: Request) => Promise<Response> };
 }
 
 // Event listener for fetch events
@@ -27,11 +28,11 @@ export default {
 
     // Handle API requests
     if (path.startsWith('/api/')) {
-      return handleAPI(request, env);
-    }
-
-    // Serve static files
-    return handleStaticFiles(request, path);
+        return handleAPI(request, env);
+      }
+  
+    // 提供静态文件（传递 env 参数）
+    return handleStaticFiles(request, path, env);
   }
 };
 
@@ -526,19 +527,23 @@ function evaluateDirection(board: number[][], x: number, y: number, dx: number, 
 /**
  * Handle static file requests
  */
-async function handleStaticFiles(_request: Request, path: string): Promise<Response> {
-  // Serve index.html for root path
-  if (path === '/' || path === '/index.html') {
-    // In a real deployment, you would serve the built index.html
-    // For now, redirect to the development server
-    return new Response('Redirecting to development server', {
-      status: 302,
-      headers: {
-        'Location': 'http://localhost:3000'
-      }
-    });
+async function handleStaticFiles(request: Request, _path: string, env: Env): Promise<Response> {
+    // 检查环境变量
+    if (env.ENVIRONMENT !== "production") {
+      // 在开发环境中重定向到开发服务器
+      return new Response('Redirecting to development server', {
+        status: 302,
+        headers: {
+          'Location': 'http://localhost:3000'
+        }
+      });
+    }
+  
+    try {
+        // 这会自动处理 index.html 和其他静态资源
+        return await env.ASSETS.fetch(request);
+    } catch (error) {
+        console.error('Error serving static file:', error);
+        return new Response('File not found', { status: 404 });
+    }
   }
-
-  // 404 for unknown paths
-  return new Response('Not found', { status: 404 });
-}

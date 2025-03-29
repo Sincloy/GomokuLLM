@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "build:worker": "wrangler build",
     "deploy:worker": "wrangler deploy",
+    "deploy": "npm run build && npm run build:worker && wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest"
   },
