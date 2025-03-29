@@ -7,6 +7,7 @@
 import { Difficulty } from '../client/game/types';
 import { ExecutionContext } from '@cloudflare/workers-types';
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from "openai";
 import { info } from 'console';
 
 // Environment variables interface
@@ -19,9 +20,17 @@ interface Env {
   GOMOKU_AI_TEMPERATURE?: string; // 使用字符串类型，后续会转为数字
   GOMOKU_AI_THINKING_ENABLED?: string; // "true" 或 "false"
   GOMOKU_AI_THINKING_BUDGET?: string; // thinking 模式的预算令牌数
+
+
+  GOMOKU_OPENAI_API_KEY?: string;
+  GOMOKU_OPENAI_MODEL?: string;
+  GOMOKU_OPENAI_BASE_URL?: string;
+  GOMOKU_OPENAI_MAX_TOKENS?: string;
+  GOMOKU_OPENAI_TEMPERATURE?: string;
   
   // 系统配置
   ENVIRONMENT?: string;
+  GOMOKU_AI_PROVIDER?: string; // "anthropic" 或 "openai"
   
   // Cloudflare Workers 资源
   ASSETS: { fetch: (request: Request) => Promise<Response> };
@@ -309,35 +318,17 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
   棋盘状态:
   ${boardRepresentation}
   请分析棋局并给出你认为最佳的下一步落子位置, 请只返回一个坐标, 格式为(x,y), 如(7,4)表示第7列第4行(有第0列和第0行)。只需要回复坐标，不要其他解释`;
+  
+  const aiProvider = env.GOMOKU_AI_PROVIDER?.toLowerCase() || 'anthropic';
+
   // Call LLM API (using Anthropic Claude API as an example)
   try {
-    const anthropic = new Anthropic({
-      apiKey: env.GOMOKU_AI_API_KEY || '',
-      baseURL: env.GOMOKU_AI_BASE_URL || "https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic",
-    });
-    const enableThinking = env.GOMOKU_AI_THINKING_ENABLED ? 
-                        env.GOMOKU_AI_THINKING_ENABLED.toLowerCase() === "true" : 
-                        false;
-
-    let thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 10000; // 默认预算
-    let maxTokens = env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100;
-    let temprature = env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0
-    if (enableThinking && maxTokens <= thinkingBudget) {
-      maxTokens = thinkingBudget + 5000;
+    let response;
+    if (aiProvider === 'openai') {
+      response = await callOpenAI(prompt, env);
+    } else {
+      response = await callAnthropic(prompt, env);
     }
-    if (enableThinking){
-      temprature = 1;
-    }
-    const response = await anthropic.messages.create({
-      model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
-      messages: [{role: "user", content: prompt}],
-      max_tokens: maxTokens,
-      temperature: temprature,
-      thinking: enableThinking ? {
-        type: "enabled",
-        budget_tokens: thinkingBudget
-      } : undefined,
-    });
 
     const move = parseAIResponse(response);
     
@@ -355,6 +346,68 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
     y: move.y,
     info: "error in Call LLM API"
   };
+}
+
+/**
+ * 调用Anthropic Claude API
+ */
+async function callAnthropic(prompt: string, env: Env): Promise<any> {  
+  const anthropic = new Anthropic({
+    apiKey: env.GOMOKU_AI_API_KEY || '',
+    baseURL: env.GOMOKU_AI_BASE_URL || "https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic",
+  });
+  
+  const enableThinking = env.GOMOKU_AI_THINKING_ENABLED ? 
+                      env.GOMOKU_AI_THINKING_ENABLED.toLowerCase() === "true" : 
+                      false;
+
+  let thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 10000; // 默认预算
+  let maxTokens = env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100;
+  let temperature = env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0;
+  
+  if (enableThinking && maxTokens <= thinkingBudget) {
+    maxTokens = thinkingBudget + 5000;
+  }
+  if (enableThinking){
+    temperature = 1;
+  }
+  
+  return await anthropic.messages.create({
+    model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
+    messages: [{role: "user", content: prompt}],
+    max_tokens: maxTokens,
+    temperature: temperature,
+    thinking: enableThinking ? {
+      type: "enabled",
+      budget_tokens: thinkingBudget
+    } : undefined,
+  });
+}
+
+
+/**
+ * 调用OpenAI API
+ */
+async function callOpenAI(prompt: string, env: Env): Promise<any> {  
+  const openai = new OpenAI({ 
+    apiKey: env.GOMOKU_OPENAI_API_KEY || '',
+    baseURL: env.GOMOKU_OPENAI_BASE_URL || 'https://api.openai.com/v1'
+  });
+
+  const maxTokens = env.GOMOKU_OPENAI_MAX_TOKENS ? parseInt(env.GOMOKU_OPENAI_MAX_TOKENS) : 1000;
+  const temperature = env.GOMOKU_OPENAI_TEMPERATURE ? parseFloat(env.GOMOKU_OPENAI_TEMPERATURE) : 0;
+
+  const response = await openai.chat.completions.create({
+    model: env.GOMOKU_OPENAI_MODEL || 'gpt-4-turbo',
+    messages: [
+      { role: "system", content: "你是一个五子棋专家AI助手。你只会输出坐标，不会输出其他内容。" },
+      { role: "user", content: prompt }
+    ],
+    max_tokens: maxTokens,
+    temperature: temperature,
+  });
+
+  return response;
 }
 
 /**
@@ -398,7 +451,14 @@ function parseAIResponse(response: any): { x: number, y: number, info: string } 
           responseText += block.text;
         }
       }
-    } else if (jsonResponse.text) {
+    }else if (jsonResponse.choices && Array.isArray(jsonResponse.choices)) {
+      if (jsonResponse.choices[0]?.message?.content) {
+        responseText = jsonResponse.choices[0].message.content;
+      } else if (jsonResponse.choices[0]?.text) {
+        responseText = jsonResponse.choices[0].text;
+      }
+    }
+    else if (jsonResponse.text) {
       // 兼容其他可能的格式
       responseText = jsonResponse.text;
     } else if (typeof jsonResponse === 'string') {
