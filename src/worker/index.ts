@@ -296,13 +296,15 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
                         env.GOMOKU_AI_THINKING_ENABLED.toLowerCase() === "true" : 
                         false;
 
-    const thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? 
-                          parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 
-                          10000;
+    let thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 10000; // 默认预算
+    let maxTokens = env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100;
+    if (enableThinking && maxTokens <= thinkingBudget) {
+      maxTokens = thinkingBudget + 5000;
+    }
     const response = await anthropic.messages.create({
       model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
       messages: [{role: "user", content: prompt}],
-      max_tokens: env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100,
+      max_tokens: maxTokens,
       temperature: env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0,
       thinking: enableThinking ? {
         type: "enabled",
