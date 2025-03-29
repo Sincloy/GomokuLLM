@@ -6,6 +6,7 @@
 // Import types
 import { Difficulty } from '../client/game/types';
 import { ExecutionContext } from '@cloudflare/workers-types';
+import Anthropic from '@anthropic-ai/sdk';
 
 // Environment variables interface
 interface Env {
@@ -277,40 +278,38 @@ ${boardRepresentation}
 请分析棋局并给出你认为最佳的下一步落子位置，格式为坐标(x,y)，左上角为(0,0)。只需要回复坐标，不要其他解释。`;
   
   // Call LLM API (using Anthropic Claude API as an example)
-  const response = await fetch('https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.GOMOKU_AI_API_KEY || '',
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: "claude-3-7-sonnet-20250219",
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ]
-    })
-  });
-  
-  if (!response.ok) {
-    throw new Error(`API request failed: ${await response.text()}`);
+  try {
+    const anthropic = new Anthropic({
+      apiKey: env.GOMOKU_AI_API_KEY || '',
+      baseURL: "https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic",
+    });
+    
+    const response = await anthropic.messages.create({
+      model: 'claude-3-7-sonnet-20250219',
+      messages: [{role: "user", content: prompt}],
+      max_tokens: 1024
+    });
+    
+    // 处理响应内容
+    let aiContent = '';
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        aiContent += block.text;
+      }
+    }
+    
+    // 解析回应获取坐标
+    const move = parseAIResponse(aiContent);
+    
+    if (move && isValidMove(board, move.x, move.y)) {
+      return move;
+    }
+  } catch (error) {
+    console.error("AI API error:", error);
   }
   
-  const result = await response.json();
-  
-  // Parse response to get coordinates
-  const move = parseAIResponse(result);
-  
-  if (move && isValidMove(board, move.x, move.y)) {
-    return move;
-  } else {
-    // Fallback to medium difficulty if parsing fails
-    return calculateMediumMove(board);
-  }
+  // 如果API调用失败或移动无效，则回退到中等难度
+  return calculateMediumMove(board);
 }
 
 /**
