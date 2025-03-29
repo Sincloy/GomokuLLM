@@ -7,6 +7,7 @@
 import { Difficulty } from '../client/game/types';
 import { ExecutionContext } from '@cloudflare/workers-types';
 import Anthropic from '@anthropic-ai/sdk';
+import { info } from 'console';
 
 // Environment variables interface
 interface Env {
@@ -98,14 +99,21 @@ async function handleMoveAPI(request: Request, env: Env): Promise<Response> {
     }
 
     // Calculate AI move
-    const move = await calculateAIMove(board, difficulty, env);
+    const moveResult = await calculateAIMove(board, difficulty, env);
+
+    const response: any = {
+      success: true,
+      move: {
+        x: moveResult.x,
+        y: moveResult.y
+      }
+    };
+
+    response.infos = moveResult.info;
 
     // Return response
     return new Response(
-      JSON.stringify({
-        success: true,
-        move
-      }),
+      JSON.stringify(response),
       {
         headers: {
           'Content-Type': 'application/json',
@@ -131,12 +139,20 @@ async function handleMoveAPI(request: Request, env: Env): Promise<Response> {
 /**
  * Calculate AI move
  */
-async function calculateAIMove(board: number[][], difficulty: Difficulty, env: Env): Promise<{ x: number, y: number }> {
+async function calculateAIMove(board: number[][], difficulty: Difficulty, env: Env): Promise<{ x: number, y: number, info?: string}> {
   // Use different strategies based on difficulty
   if (difficulty === 'easy') {
-    return calculateSimpleMove(board);
+    const move = calculateSimpleMove(board);
+    return {
+      ...move,
+      info: "使用简单策略计算的移动。"
+    };
   } else if (difficulty === 'medium') {
-    return calculateMediumMove(board);
+    const move = calculateMediumMove(board);
+    return {
+      ...move,
+      info: "使用中等难度策略计算的移动。"
+    };
   } else {
     // For hard difficulty, use LLM API if available
     if (env.GOMOKU_AI_API_KEY) {
@@ -144,12 +160,19 @@ async function calculateAIMove(board: number[][], difficulty: Difficulty, env: E
         return await calculateLLMMove(board, env);
       } catch (error) {
         console.error('LLM API error:', error);
-        // Fallback to medium difficulty if LLM API fails
-        return calculateMediumMove(board);
+        // 如果LLM API失败，回退到中等难度
+        const move = calculateMediumMove(board);
+        return {
+          ...move,
+          info: "由于API调用失败，使用了中等难度的策略。"
+        };
       }
     } else {
-      // Fallback to medium difficulty if no API key
-      return calculateMediumMove(board);
+      const move = calculateMediumMove(board);
+      return {
+        ...move,
+        info: "由于未配置API密钥，使用了中等难度的策略。"
+      };
     }
   }
 }
@@ -274,7 +297,7 @@ function calculateMediumMove(board: number[][]): { x: number, y: number } {
 /**
  * Calculate move using LLM API
  */
-async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: number, y: number }> {
+async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: number, y: number, info?: string }> {
   // Format board for LLM
   const boardRepresentation = board.map(row => 
     row.map(cell => cell === 0 ? '#' : cell === 1 ? 'X' : 'O').join(' ')
@@ -298,14 +321,18 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
 
     let thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 10000; // 默认预算
     let maxTokens = env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100;
+    let temprature = env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0
     if (enableThinking && maxTokens <= thinkingBudget) {
       maxTokens = thinkingBudget + 5000;
+    }
+    if (enableThinking){
+      temprature = 1;
     }
     const response = await anthropic.messages.create({
       model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
       messages: [{role: "user", content: prompt}],
       max_tokens: maxTokens,
-      temperature: env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0,
+      temperature: temprature,
       thinking: enableThinking ? {
         type: "enabled",
         budget_tokens: thinkingBudget
@@ -322,13 +349,18 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
   }
   
   // 如果API调用失败或移动无效，则回退到中等难度
-  return calculateMediumMove(board);
+  const move = calculateMediumMove(board);
+  return {
+    x: move.x,
+    y: move.y,
+    info: "error in Call LLM API"
+  };
 }
 
 /**
  * Parse AI response to extract coordinates
  */
-function parseAIResponse(response: any): { x: number, y: number } | null {
+function parseAIResponse(response: any): { x: number, y: number, info: string } | null {
   try {
     // 确保我们有一个响应对象
     if (!response) return null;
@@ -341,7 +373,17 @@ function parseAIResponse(response: any): { x: number, y: number } | null {
         jsonResponse = JSON.parse(response);
       } catch (e) {
         // 如果不是有效的JSON，则直接从字符串中提取坐标
-        return extractCoordinatesFromText(response);
+        const move = extractCoordinatesFromText(response);
+        if(move){
+          return {
+            x: move.x,
+            y: move.y,
+            info: "error, is not json format string",
+          }
+        }
+        return null;
+          
+        
       }
     }
     
@@ -365,7 +407,15 @@ function parseAIResponse(response: any): { x: number, y: number } | null {
     }
     
     // 从提取的文本中获取坐标
-    return extractCoordinatesFromText(responseText);
+    const move = extractCoordinatesFromText(responseText);
+    if(move){
+      return {
+        x: move?.x,
+        y: move?.y,
+        info: responseText
+      };
+    }
+    return null;
   } catch (error) {
     console.error('Parse AI response error:', error);
     return null;
