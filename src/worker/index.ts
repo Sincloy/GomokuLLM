@@ -277,7 +277,7 @@ ${boardRepresentation}
 请分析棋局并给出你认为最佳的下一步落子位置，格式为坐标(x,y)，左上角为(0,0)。只需要回复坐标，不要其他解释。`;
   
   // Call LLM API (using Anthropic Claude API as an example)
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -285,8 +285,8 @@ ${boardRepresentation}
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
-      max_tokens: 1000,
+      model: "claude-3-7-sonnet-20250219",
+      max_tokens: 1024,
       messages: [
         {
           role: "user",
