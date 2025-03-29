@@ -318,6 +318,7 @@ function parseAIResponse(response: any): { x: number, y: number } | null {
   try {
     // 确保我们有一个响应对象
     if (!response) return null;
+    console.info(response)
     
     // 如果收到的是字符串，尝试解析为JSON
     let jsonResponse = response;

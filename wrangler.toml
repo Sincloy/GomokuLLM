@@ -9,6 +9,9 @@ compatibility_date = "2024-03-29"
 directory = "./dist/client"
 binding = "ASSETS"
 
+[observability.logs]
+enabled = true
+
 [vars]
 # Public environment variables can be set here
 ENVIRONMENT = "production"
