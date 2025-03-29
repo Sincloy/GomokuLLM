@@ -16,6 +16,8 @@ interface Env {
   GOMOKU_AI_BASE_URL?: string;
   GOMOKU_AI_MAX_TOKENS?: string; // 使用字符串类型，后续会转为数字
   GOMOKU_AI_TEMPERATURE?: string; // 使用字符串类型，后续会转为数字
+  GOMOKU_AI_THINKING_ENABLED?: string; // "true" 或 "false"
+  GOMOKU_AI_THINKING_BUDGET?: string; // thinking 模式的预算令牌数
   
   // 系统配置
   ENVIRONMENT?: string;
@@ -279,7 +281,7 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
   ).join('\n');
   
   // Create prompt
-  const prompt = `你是五子棋AI助手。请分析下面的棋盘状态，并给出白棋(O)的最佳落子位置。
+  const prompt = `你是五子棋AI助手。你必须清楚五子棋的规则，以及五子棋获胜的诀窍，请分析下面的棋盘状态，并给出白棋(O)的最佳落子位置。
   棋盘说明：15*15的棋盘，左上角为(0,0)，X代表黑棋，O代表白棋，#代表空位
   棋盘状态:
   ${boardRepresentation}
@@ -290,12 +292,22 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
       apiKey: env.GOMOKU_AI_API_KEY || '',
       baseURL: env.GOMOKU_AI_BASE_URL || "https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic",
     });
-    
+    const enableThinking = env.GOMOKU_AI_THINKING_ENABLED ? 
+                        env.GOMOKU_AI_THINKING_ENABLED.toLowerCase() === "true" : 
+                        false;
+
+    const thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? 
+                          parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 
+                          10000;
     const response = await anthropic.messages.create({
       model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
       messages: [{role: "user", content: prompt}],
       max_tokens: env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100,
-      temperature: env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0
+      temperature: env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0,
+      thinking: enableThinking ? {
+        type: "enabled",
+        budget_tokens: thinkingBudget
+      } : undefined,
     });
 
     const move = parseAIResponse(response);
