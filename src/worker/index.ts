@@ -10,8 +10,17 @@ import Anthropic from '@anthropic-ai/sdk';
 
 // Environment variables interface
 interface Env {
+  // API配置
   GOMOKU_AI_API_KEY?: string;
+  GOMOKU_AI_MODEL?: string;
+  GOMOKU_AI_BASE_URL?: string;
+  GOMOKU_AI_MAX_TOKENS?: string; // 使用字符串类型，后续会转为数字
+  GOMOKU_AI_TEMPERATURE?: string; // 使用字符串类型，后续会转为数字
+  
+  // 系统配置
   ENVIRONMENT?: string;
+  
+  // Cloudflare Workers 资源
   ASSETS: { fetch: (request: Request) => Promise<Response> };
 }
 
@@ -266,40 +275,30 @@ function calculateMediumMove(board: number[][]): { x: number, y: number } {
 async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: number, y: number }> {
   // Format board for LLM
   const boardRepresentation = board.map(row => 
-    row.map(cell => cell === 0 ? '.' : cell === 1 ? 'X' : 'O').join(' ')
+    row.map(cell => cell === 0 ? '#' : cell === 1 ? 'X' : 'O').join(' ')
   ).join('\n');
   
   // Create prompt
-  const prompt = `你是五子棋AI助手。我给你展示当前的棋盘状态，请分析并给出白棋(O)的最佳落子位置。
-黑棋用X表示，白棋用O表示，空位用.表示。
-棋盘状态:
-${boardRepresentation}
-
-请分析棋局并给出你认为最佳的下一步落子位置，格式为坐标(x,y)，左上角为(0,0)。只需要回复坐标，不要其他解释。`;
-  
+  const prompt = `你是五子棋AI助手。请分析下面的棋盘状态，并给出白棋(O)的最佳落子位置。
+  棋盘说明：15*15的棋盘，左上角为(0,0)，X代表黑棋，O代表白棋，#代表空位
+  棋盘状态:
+  ${boardRepresentation}
+  请分析棋局并给出你认为最佳的下一步落子位置, 请只返回一个坐标, 格式为(x,y), 如(7,4)表示第7列第4行(有第0列和第0行)。只需要回复坐标，不要其他解释`;
   // Call LLM API (using Anthropic Claude API as an example)
   try {
     const anthropic = new Anthropic({
       apiKey: env.GOMOKU_AI_API_KEY || '',
-      baseURL: "https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic",
+      baseURL: env.GOMOKU_AI_BASE_URL || "https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic",
     });
     
     const response = await anthropic.messages.create({
-      model: 'claude-3-7-sonnet-20250219',
+      model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
       messages: [{role: "user", content: prompt}],
-      max_tokens: 1024
+      max_tokens: env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100,
+      temperature: env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0
     });
-    
-    // 处理响应内容
-    let aiContent = '';
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        aiContent += block.text;
-      }
-    }
-    
-    // 解析回应获取坐标
-    const move = parseAIResponse(aiContent);
+
+    const move = parseAIResponse(response);
     
     if (move && isValidMove(board, move.x, move.y)) {
       return move;
@@ -317,22 +316,103 @@ ${boardRepresentation}
  */
 function parseAIResponse(response: any): { x: number, y: number } | null {
   try {
-    // Extract coordinates using regex
-    const content = response.content[0].text;
-    const match = content.match(/\((\d+),\s*(\d+)\)/);
+    // 确保我们有一个响应对象
+    if (!response) return null;
     
-    if (match) {
-      const x = parseInt(match[1], 10);
-      const y = parseInt(match[2], 10);
-      return { x, y };
+    // 如果收到的是字符串，尝试解析为JSON
+    let jsonResponse = response;
+    if (typeof response === 'string') {
+      try {
+        jsonResponse = JSON.parse(response);
+      } catch (e) {
+        // 如果不是有效的JSON，则直接从字符串中提取坐标
+        return extractCoordinatesFromText(response);
+      }
     }
     
-    return null;
+    // 从API响应JSON对象中提取文本内容
+    let responseText = '';
+    
+    // 处理标准Claude API响应格式
+    if (jsonResponse.content && Array.isArray(jsonResponse.content)) {
+      // 遍历所有内容块，提取文本
+      for (const block of jsonResponse.content) {
+        if (block.type === 'text') {
+          responseText += block.text;
+        }
+      }
+    } else if (jsonResponse.text) {
+      // 兼容其他可能的格式
+      responseText = jsonResponse.text;
+    } else if (typeof jsonResponse === 'string') {
+      // 如果已经是字符串
+      responseText = jsonResponse;
+    }
+    
+    // 从提取的文本中获取坐标
+    return extractCoordinatesFromText(responseText);
   } catch (error) {
     console.error('Parse AI response error:', error);
     return null;
   }
 }
+
+/**
+ * 从文本中提取坐标
+ */
+function extractCoordinatesFromText(text: string): { x: number, y: number } | null {
+  if (!text) return null;
+  
+  // 清理响应文本
+  const cleanedResponse = text.trim();
+  
+  // 匹配括号内的坐标，考虑多种格式：
+  // 1. (7, 4) - 英文逗号带空格
+  // 2. (7,4) - 英文逗号无空格
+  // 3. (7，4) - 中文逗号带空格
+  // 4. (7，4) - 中文逗号无空格
+  const bracketsRegex = /\((\d{1,2})[\s]*[,，][\s]*(\d{1,2})\)/;
+  const bracketFormat = cleanedResponse.match(bracketsRegex);
+  if (bracketFormat) {
+    return {
+      x: parseInt(bracketFormat[1], 10),
+      y: parseInt(bracketFormat[2], 10)
+    };
+  }
+  
+  // 匹配无括号的坐标，考虑中英文逗号和空格变体
+  const commaRegex = /(\d{1,2})[\s]*[,，][\s]*(\d{1,2})/;
+  const commaFormat = cleanedResponse.match(commaRegex);
+  if (commaFormat) {
+    return {
+      x: parseInt(commaFormat[1], 10),
+      y: parseInt(commaFormat[2], 10)
+    };
+  }
+  
+  // 尝试匹配任何两个连续的数字
+  const consecutiveNumbers = cleanedResponse.match(/(\d{1,2})[\s\W]+(\d{1,2})/);
+  if (consecutiveNumbers) {
+    return {
+      x: parseInt(consecutiveNumbers[1], 10),
+      y: parseInt(consecutiveNumbers[2], 10)
+    };
+  }
+  
+  // 最后尝试匹配任何两个相邻的数字
+  const numbers = cleanedResponse.match(/\d{1,2}/g);
+  if (numbers && numbers.length >= 2) {
+    return {
+      x: parseInt(numbers[0], 10),
+      y: parseInt(numbers[1], 10)
+    };
+  }
+  
+  console.warn('Could not parse coordinates from text:', cleanedResponse);
+  return null;
+}
+
+
 
 /**
  * Check if a position is threatening
