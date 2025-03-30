@@ -131,6 +131,13 @@ export class GameController {
         // Use LLM API
         const llmClient = new LLMClient(this.board, CellState.WHITE, this.settings.difficulty);
         move = await llmClient.getMove();
+        // ai投降
+        if (move && move.x === -1 && move.y === -1) {
+          this.gameState.gameOver = true;
+          this.gameState.winner = CellState.WHITE;
+          this.onGameOverCallback(CellState.SURRENDER);
+          return;
+        }
       }
       
       // Make the move if valid

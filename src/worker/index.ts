@@ -8,7 +8,7 @@ import { Difficulty } from '../client/game/types';
 import { ExecutionContext } from '@cloudflare/workers-types';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from "openai";
-import { calculateMediumMove, checkWin, EMPTY, BLACK, WHITE, BOARD_SIZE } from './gomoku-ai';
+import { calculateMediumMove, checkWin, analyzeBoard, EMPTY, BLACK, WHITE, BOARD_SIZE } from './gomoku-ai';
 
 // Environment variables interface
 interface Env {
@@ -230,17 +230,66 @@ function calculateSimpleMove(board: number[][]): { x: number, y: number } {
  * Calculate move using LLM API
  */
 async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: number, y: number, info?: string }> {
+  const boardAnalysis = analyzeBoard(board);
+
+  if (boardAnalysis.shouldSurrender) {
+    return {
+      x: -1, 
+      y: -1, 
+      info: "AI选择投降，因为:" + boardAnalysis.surrenderReason
+    };
+  }
+
   // Format board for LLM
   const boardRepresentation = board.map(row => 
     row.map(cell => cell === 0 ? '#' : cell === 1 ? 'X' : 'O').join(' ')
   ).join('\n');
   
-  // Create prompt
-  const prompt = `你是五子棋AI助手。你必须清楚五子棋的规则，以及五子棋获胜的诀窍，请分析下面的棋盘状态，并给出白棋(O)的最佳落子位置。
-  棋盘说明：15*15的棋盘，左上角为(0,0)，X代表黑棋，O代表白棋，#代表空位
-  棋盘状态:
-  ${boardRepresentation}
-  请分析棋局并给出你认为最佳的下一步落子位置, 请只返回一个坐标, 格式为(x,y), 如(7,4)表示第7列第4行(有第0列和第0行)。只需要回复坐标，不要其他解释`;
+  // 创建增强的提示，包括棋盘分析结果
+  let prompt = `你是五子棋AI助手。你必须清楚五子棋的规则，以及五子棋获胜的诀窍。请分析下面的棋盘状态，并给出白棋(O)的最佳落子位置。
+  
+棋盘说明：15*15的棋盘，左上角为(0,0)，X代表黑棋，O代表白棋，#代表空位
+
+棋盘状态:
+${boardRepresentation}
+
+`;
+
+  // 根据局势紧急程度添加不同的指令
+  if (boardAnalysis.urgencyLevel === "critical") {
+    prompt += `警告：当前局势非常紧急！${boardAnalysis.urgencyReason}
+
+我已经分析出了关键移动，你必须选择其中一个:
+${boardAnalysis.topMoves.slice(0, 3).map((move, index) => 
+  `${index+1}. 坐标(${move.x},${move.y}) - ${move.reason}`
+).join('\n')}
+
+请迅速选择一个上述位置，不要考虑其他选项。
+请只返回一个坐标，格式为(x,y)。只需要回复坐标，不要其他解释。`;
+  } 
+  else if (boardAnalysis.urgencyLevel === "high") {
+    prompt += `当前局势需要注意！${boardAnalysis.urgencyReason}
+
+推荐移动位置:
+${boardAnalysis.topMoves.slice(0, 3).map((move, index) => 
+  `${index+1}. 坐标(${move.x},${move.y}) - ${move.reason}`
+).join('\n')}
+
+请基于以上推荐和你的五子棋知识快速做出选择。
+请只返回一个坐标，格式为(x,y)。只需要回复坐标，不要其他解释。`;
+  }
+  else {
+    prompt += `算法分析结果:
+${boardAnalysis.analysisText}
+
+推荐的移动位置有:
+${boardAnalysis.topMoves.slice(0, 5).map((move, index) => 
+  `${index+1}. 坐标(${move.x},${move.y}) - 评分: ${move.score}，${move.reason}`
+).join('\n')}
+
+请基于上述信息和你的五子棋知识分析棋局，并给出你认为最佳的下一步落子位置。
+请只返回一个坐标，格式为(x,y)。只需要回复坐标，不要其他解释。`;
+  }
   
   const aiProvider = env.GOMOKU_AI_PROVIDER?.toLowerCase() || 'anthropic';
 

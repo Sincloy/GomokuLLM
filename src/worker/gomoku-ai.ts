@@ -348,3 +348,459 @@ function findThreats(board: number[][], humanPlayer: number, aiPlayer: number): 
   
   return threats.map(t => ({ x: t.x, y: t.y }));
 }
+
+/**
+ * 使用中级算法分析棋盘
+ * @param board 棋盘状态
+ * @returns 分析结果和建议移动
+ */
+export function analyzeBoard(board: number[][]): { 
+  analysisText: string, 
+  topMoves: Array<{ x: number, y: number, score: number, reason: string }>,
+  urgencyLevel: "normal" | "high" | "critical",
+  urgencyReason: string,
+  shouldSurrender: boolean,
+  surrenderReason: string
+} {
+  // 分析当前局势
+  let analysis = "";
+  let urgencyLevel: "normal" | "high" | "critical" = "normal";
+  let urgencyReason = "";
+  let shouldSurrender = false;
+  let surrenderReason = "";
+  
+  // 统计棋盘上棋子数量
+  const stoneCount = countStones(board);
+  
+  // 检查是否有任一方接近获胜
+  const winningThreats = findWinningThreats(board);
+  
+  // 白棋有获胜威胁 - 优先选择这些位置
+  if (winningThreats.white.length > 0) {
+    analysis += `白棋(O)有获胜威胁，位置：${winningThreats.white.map(p => `(${p.x},${p.y})`).join(', ')}。\n`;
+    urgencyLevel = "critical";
+    urgencyReason = "白棋有获胜机会，必须抓住！";
+  }
+  // 黑棋有获胜威胁 - 必须阻止
+  else if (winningThreats.black.length > 0) {
+    analysis += `黑棋(X)有获胜威胁，位置：${winningThreats.black.map(p => `(${p.x},${p.y})`).join(', ')}。\n`;
+    urgencyLevel = "critical";
+    urgencyReason = "黑棋有获胜威胁，必须阻止！";
+  }
+  
+  // 评估当前局势的优劣
+  const situationAnalysis = evaluateBoardSituation(board);
+  analysis += situationAnalysis.analysis;
+  
+  // 如果局势极度不利，考虑投降
+  if (situationAnalysis.whiteScore < -50000 && stoneCount.total > 20) {
+    shouldSurrender = true;
+    surrenderReason = "局势已经不可挽回，黑棋占据绝对优势。";
+  }
+  
+  // 检测黑棋的活三或活四威胁
+  const blackThreats = detectThreats(board, BLACK);
+  if (blackThreats.liveFour.length > 0) {
+    urgencyLevel = "critical";
+    urgencyReason = "黑棋有活四威胁，必须立即阻止！";
+    analysis += `黑棋有活四威胁，位置: ${blackThreats.liveFour.map(p => `(${p.x},${p.y})`).join(', ')}。\n`;
+  } 
+  else if (blackThreats.liveThree.length > 1) {
+    urgencyLevel = "critical";
+    urgencyReason = "黑棋有多个活三威胁，形成双活三！";
+    analysis += `黑棋有双活三威胁，需要立即阻止。\n`;
+  }
+  else if (blackThreats.liveThree.length > 0) {
+    urgencyLevel = "high";
+    urgencyReason = "黑棋有活三威胁，需要及时应对。";
+    analysis += `黑棋有活三威胁，位置: ${blackThreats.liveThree.map(p => `(${p.x},${p.y})`).join(', ')}。\n`;
+  }
+  
+  // 如果白棋有活四或双活三，应该优先进攻
+  const whiteThreats = detectThreats(board, WHITE);
+  if (whiteThreats.liveFour.length > 0) {
+    urgencyLevel = "critical";
+    urgencyReason = "白棋有活四威胁，可以直接获胜！";
+    analysis += `白棋有活四威胁，可以在下一步获胜。\n`;
+  }
+  else if (whiteThreats.liveThree.length > 1) {
+    urgencyLevel = "critical";
+    urgencyReason = "白棋有双活三，形成必胜局面！";
+    analysis += `白棋有双活三，可以形成必胜局面。\n`;
+  }
+  
+  // 获取最佳移动列表
+  let bestMoves = findBestMoves(board, 5);
+  
+  // 如果有紧急威胁，重新排序最佳移动
+  if (urgencyLevel === "critical") {
+    if (winningThreats.white.length > 0) {
+      // 优先选择可以获胜的位置
+      bestMoves = winningThreats.white.map(move => ({
+        x: move.x,
+        y: move.y,
+        score: 1000000,
+        reason: "这一步可以直接获胜"
+      })).concat(bestMoves);
+    } 
+    else if (winningThreats.black.length > 0) {
+      // 优先选择可以阻止对手获胜的位置
+      bestMoves = winningThreats.black.map(move => ({
+        x: move.x,
+        y: move.y,
+        score: 900000,
+        reason: "这一步可以阻止对手直接获胜"
+      })).concat(bestMoves);
+    }
+    
+    // 去除重复项
+    bestMoves = bestMoves.filter((move, index, self) =>
+      index === self.findIndex((m) => (m.x === move.x && m.y === move.y))
+    );
+  }
+  
+  return {
+    analysisText: analysis,
+    topMoves: bestMoves,
+    urgencyLevel,
+    urgencyReason,
+    shouldSurrender,
+    surrenderReason
+  };
+}
+
+/**
+ * 统计棋盘上的棋子数量
+ */
+function countStones(board: number[][]): { black: number, white: number, total: number } {
+  let black = 0;
+  let white = 0;
+  
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] === BLACK) black++;
+      else if (board[y][x] === WHITE) white++;
+    }
+  }
+  
+  return { black, white, total: black + white };
+}
+
+/**
+ * 评估整体棋盘局势
+ */
+function evaluateBoardSituation(board: number[][]): { 
+  whiteScore: number, 
+  blackScore: number, 
+  analysis: string 
+} {
+  let whiteScore = 0;
+  let blackScore = 0;
+  
+  // 评估每个已有棋子的位置价值
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] === WHITE) {
+        whiteScore += evaluatePositionAdvanced(board, x, y, WHITE);
+      } else if (board[y][x] === BLACK) {
+        blackScore += evaluatePositionAdvanced(board, x, y, BLACK);
+      }
+    }
+  }
+  
+  // 获取控制区域
+  const controlledArea = analyzeControlledArea(board);
+  
+  let analysis = "";
+  if (whiteScore > blackScore * 1.5) {
+    analysis += "白棋占据优势，控制了更多有利位置。\n";
+  } else if (blackScore > whiteScore * 1.5) {
+    analysis += "黑棋占据优势，控制了更多有利位置。\n";
+  } else {
+    analysis += "双方局势相对均衡。\n";
+  }
+  
+  analysis += `白棋控制区域：${controlledArea.white}格，黑棋控制区域：${controlledArea.black}格。\n`;
+  
+  return { whiteScore, blackScore, analysis };
+}
+
+/**
+ * 分析棋盘控制区域
+ */
+function analyzeControlledArea(board: number[][]): { white: number, black: number } {
+  let whiteArea = 0;
+  let blackArea = 0;
+  
+  // 简单方法：检查每个空白位置，看它更接近哪方的棋子
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] !== EMPTY) continue;
+      
+      // 查找最近的白棋和黑棋
+      const nearestWhite = findNearestStone(board, x, y, WHITE);
+      const nearestBlack = findNearestStone(board, x, y, BLACK);
+      
+      // 判断控制方
+      if (nearestWhite < nearestBlack) {
+        whiteArea++;
+      } else if (nearestBlack < nearestWhite) {
+        blackArea++;
+      }
+      // 距离相等则不计入任何一方
+    }
+  }
+  
+  return { white: whiteArea, black: blackArea };
+}
+
+/**
+ * 找到最近的指定类型棋子
+ */
+function findNearestStone(board: number[][], x: number, y: number, stoneType: number): number {
+  let minDistance = Infinity;
+  
+  for (let cy = 0; cy < BOARD_SIZE; cy++) {
+    for (let cx = 0; cx < BOARD_SIZE; cx++) {
+      if (board[cy][cx] !== stoneType) continue;
+      
+      const distance = Math.sqrt(Math.pow(cx - x, 2) + Math.pow(cy - y, 2));
+      minDistance = Math.min(minDistance, distance);
+    }
+  }
+  
+  return minDistance;
+}
+
+
+/**
+ * 检测活三和活四威胁
+ */
+function detectThreats(board: number[][], player: number): {
+  liveFour: Array<{x: number, y: number}>,
+  liveThree: Array<{x: number, y: number}>
+} {
+  const liveFour: {x: number, y: number}[] = [];
+  const liveThree: {x: number, y: number}[] = [];
+  
+  // 定义活四和活三的模式
+  const liveFourPatterns = [
+    [0, 1, 1, 1, 1, 0] // 活四: 0XXXX0
+  ];
+  
+  const liveThreePatterns = [
+    [0, 1, 1, 1, 0],   // 活三: 0XXX0
+    [0, 1, 0, 1, 1, 0], // 跳活三: 0X0XX0
+    [0, 1, 1, 0, 1, 0]  // 跳活三: 0XX0X0
+  ];
+  
+  // 方向数组
+  const directions = [
+    [1, 0],   // 水平
+    [0, 1],   // 垂直
+    [1, 1],   // 右下对角线
+    [1, -1]   // 右上对角线
+  ];
+  
+  // 检查每个空位
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] !== EMPTY) continue;
+      
+      // 尝试在此位置放置棋子
+      board[y][x] = player;
+      
+      // 检查各个方向
+      for (const [dx, dy] of directions) {
+        // 提取线上的棋型
+        const line: number[] = [];
+        
+        // 提取一段足够长的线
+        for (let i = -5; i <= 5; i++) {
+          const nx = x + dx * i;
+          const ny = y + dy * i;
+          
+          if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE) {
+            line.push(board[ny][nx]);
+          } else {
+            line.push(-1); // 边界外标记
+          }
+        }
+        
+        // 检查活四模式
+        for (const pattern of liveFourPatterns) {
+          if (findPatternInLine(line, pattern)) {
+            liveFour.push({x, y});
+            break;
+          }
+        }
+        
+        // 检查活三模式
+        for (const pattern of liveThreePatterns) {
+          if (findPatternInLine(line, pattern)) {
+            liveThree.push({x, y});
+            break;
+          }
+        }
+      }
+      
+      // 恢复空位
+      board[y][x] = EMPTY;
+    }
+  }
+  
+  return { liveFour, liveThree };
+}
+
+/**
+ * 在线上查找模式
+ */
+function findPatternInLine(line: number[], pattern: number[]): boolean {
+  for (let i = 0; i <= line.length - pattern.length; i++) {
+    let match = true;
+    for (let j = 0; j < pattern.length; j++) {
+      if (pattern[j] !== -1 && line[i + j] !== pattern[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return true;
+  }
+  return false;
+}
+
+/**
+ * 寻找获胜威胁
+ * @param board 棋盘状态
+ * @returns 白棋和黑棋的获胜威胁位置
+ */
+function findWinningThreats(board: number[][]): {
+  white: Array<{x: number, y: number}>,
+  black: Array<{x: number, y: number}>
+} {
+  const whiteThreats: {x: number, y: number}[] = [];
+  const blackThreats: {x: number, y: number}[] = [];
+  
+  // 检查每个空位
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] !== EMPTY) continue;
+      
+      // 检查白棋是否能在这一步获胜
+      board[y][x] = WHITE;
+      if (checkWin(board, x, y, WHITE)) {
+        whiteThreats.push({x, y});
+      }
+      
+      // 检查黑棋是否能在这一步获胜
+      board[y][x] = BLACK;
+      if (checkWin(board, x, y, BLACK)) {
+        blackThreats.push({x, y});
+      }
+      
+      // 恢复空位
+      board[y][x] = EMPTY;
+    }
+  }
+  
+  return { white: whiteThreats, black: blackThreats };
+}
+
+/**
+ * 寻找最佳移动位置
+ * @param board 棋盘状态
+ * @param count 返回的位置数量
+ * @returns 评分最高的移动位置列表
+ */
+function findBestMoves(board: number[][], count: number): Array<{
+  x: number, 
+  y: number, 
+  score: number,
+  reason: string
+}> {
+  const moves: Array<{x: number, y: number, score: number, reason: string}> = [];
+  
+  // 首先查找获胜和阻止对手获胜的移动
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] !== EMPTY) continue;
+      
+      // 检查白棋获胜
+      board[y][x] = WHITE;
+      if (checkWin(board, x, y, WHITE)) {
+        moves.push({
+          x, y, 
+          score: 100000, 
+          reason: "这一步可以直接获胜"
+        });
+        board[y][x] = EMPTY;
+        continue;
+      }
+      
+      // 检查阻止黑棋获胜
+      board[y][x] = BLACK;
+      if (checkWin(board, x, y, BLACK)) {
+        board[y][x] = EMPTY;
+        moves.push({
+          x, y, 
+          score: 90000, 
+          reason: "这一步可以阻止对手直接获胜"
+        });
+        continue;
+      }
+      
+      // 恢复空位并计算普通评分
+      board[y][x] = EMPTY;
+      
+      // 只评估有邻居的位置
+      if (!hasNeighbor(board, x, y)) continue;
+      
+      // 评估白棋和黑棋的分数
+      board[y][x] = WHITE;
+      const whiteScore = evaluatePositionAdvanced(board, x, y, WHITE);
+      
+      board[y][x] = BLACK;
+      const blackScore = evaluatePositionAdvanced(board, x, y, BLACK);
+      
+      board[y][x] = EMPTY;
+      
+      // 综合评分
+      const totalScore = whiteScore * 1.5 - blackScore * 1.2;
+      
+      // 生成理由
+      let reason = "";
+      if (whiteScore > 10000 && blackScore > 10000) {
+        reason = "既能形成自己的强势，又能阻止对手的强势";
+      } else if (whiteScore > 10000) {
+        reason = "能形成自己的强势局面";
+      } else if (blackScore > 10000) {
+        reason = "能阻止对手的强势局面";
+      } else if (whiteScore > 5000) {
+        reason = "能形成自己的良好局面";
+      } else if (blackScore > 5000) {
+        reason = "能阻止对手的良好局面";
+      } else {
+        reason = "综合攻防考虑的常规选择";
+      }
+      
+      moves.push({ x, y, score: totalScore, reason });
+    }
+  }
+  
+  // 如果没有找到有效移动，返回中心附近的移动
+  if (moves.length === 0) {
+    const center = Math.floor(BOARD_SIZE / 2);
+    moves.push({
+      x: center, 
+      y: center, 
+      score: 1, 
+      reason: "棋局开始，选择中心位置"
+    });
+  }
+  
+  // 按分数排序
+  moves.sort((a, b) => b.score - a.score);
+  
+  // 返回前N个移动
+  return moves.slice(0, count);
+}

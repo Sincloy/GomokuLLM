@@ -6,7 +6,8 @@
 export enum CellState {
   EMPTY = 0,
   BLACK = 1,
-  WHITE = 2
+  WHITE = 2,
+  SURRENDER = 3
 }
 
 // Game difficulty levels

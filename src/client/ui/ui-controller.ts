@@ -175,6 +175,9 @@ export class UIController {
     } else if (winner === 2) {
       title = '失败！';
       message = 'AI获胜了，再接再厉！';
+    } else if (winner === 3) {
+      title = '对手投降 😢';
+      message = 'AI认输了，你太厉害了！';
     } else {
       title = '平局';
       message = '棋盘已满，双方平局！';
