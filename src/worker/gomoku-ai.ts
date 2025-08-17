@@ -6,23 +6,44 @@ export const BLACK = 1;
 export const WHITE = 2;
 export const BOARD_SIZE = 15;
 
-// 棋型评分表
+// 增强的棋型评分表 - 使用更精确的评分系统
 const SHAPE_SCORES = [
-  { score: 50, pattern: [0, 1, 1, 0, 0] },    // 活二
-  { score: 50, pattern: [0, 0, 1, 1, 0] },    // 活二
-  { score: 200, pattern: [1, 1, 0, 1, 0] },   // 死三
-  { score: 500, pattern: [0, 0, 1, 1, 1] },   // 死三
-  { score: 500, pattern: [1, 1, 1, 0, 0] },   // 死三
-  { score: 5000, pattern: [0, 1, 1, 1, 0] },  // 活三
-  { score: 5000, pattern: [0, 1, 0, 1, 1, 0] }, // 跳活三
-  { score: 5000, pattern: [0, 1, 1, 0, 1, 0] }, // 跳活三
-  { score: 5000, pattern: [1, 1, 1, 0, 1] },  // 死四
-  { score: 5000, pattern: [1, 1, 0, 1, 1] },  // 死四
-  { score: 5000, pattern: [1, 0, 1, 1, 1] },  // 死四
-  { score: 5000, pattern: [1, 1, 1, 1, 0] },  // 死四
-  { score: 5000, pattern: [0, 1, 1, 1, 1] },  // 死四
-  { score: 50000, pattern: [0, 1, 1, 1, 1, 0] }, // 活四
-  { score: 99999999, pattern: [1, 1, 1, 1, 1] }  // 五连
+  // 活二 - 基础进攻
+  { score: 20, pattern: [0, 1, 1, 0, 0] },
+  { score: 20, pattern: [0, 0, 1, 1, 0] },
+  { score: 30, pattern: [0, 1, 0, 1, 0] }, // 跳活二
+  
+  // 死二 - 受限制的二连
+  { score: 10, pattern: [2, 1, 1, 0, 0] },
+  { score: 10, pattern: [0, 0, 1, 1, 2] },
+  
+  // 活三 - 重要进攻棋型
+  { score: 5000, pattern: [0, 1, 1, 1, 0] },  // 标准活三
+  { score: 4500, pattern: [0, 1, 0, 1, 1, 0] }, // 跳活三
+  { score: 4500, pattern: [0, 1, 1, 0, 1, 0] }, // 跳活三
+  
+  // 死三 - 单边受阻的三连
+  { score: 800, pattern: [2, 1, 1, 1, 0] },
+  { score: 800, pattern: [0, 1, 1, 1, 2] },
+  { score: 600, pattern: [1, 1, 0, 1, 0] },
+  { score: 600, pattern: [0, 1, 0, 1, 1] },
+  { score: 500, pattern: [1, 0, 1, 1, 0] },
+  
+  // 活四 - 下一步即胜
+  { score: 50000, pattern: [0, 1, 1, 1, 1, 0] }, // 标准活四
+  
+  // 死四 - 需要及时形成或阻止
+  { score: 8000, pattern: [1, 1, 1, 1, 0] },  // 死四
+  { score: 8000, pattern: [0, 1, 1, 1, 1] },  // 死四
+  { score: 7000, pattern: [1, 1, 0, 1, 1] },  // 跳死四
+  { score: 7000, pattern: [1, 0, 1, 1, 1] },  // 跳死四
+  { score: 6000, pattern: [1, 1, 1, 0, 1] },  // 跳死四
+  
+  // 双四 - 必胜
+  { score: 80000, pattern: [1, 1, 1, 1, 0, 1] },
+  
+  // 五连 - 即胜
+  { score: 10000000, pattern: [1, 1, 1, 1, 1] }
 ];
 
 /**
@@ -90,20 +111,31 @@ export function calculateMediumMove(board: number[][]): { x: number, y: number }
     return { x: Math.floor(BOARD_SIZE / 2), y: Math.floor(BOARD_SIZE / 2) };
   }
   
-  // 对每个候选进行评估
+  // 对每个候选进行评估 - 使用改进的多层评估策略
   for (const { x, y } of candidates) {
+    // 评估己方在此位置的价值
     board[y][x] = WHITE;
-    // 改进了评估函数，更重视自己的进攻
     const selfScore = evaluatePositionAdvanced(board, x, y, WHITE);
-    board[y][x] = BLACK; // 临时替换为对手的棋子
+    const selfTacticalScore = evaluateTacticalValue(board, x, y, WHITE);
+    
+    // 评估阻止对手在此位置的价值
+    board[y][x] = BLACK;
     const opponentScore = evaluatePositionAdvanced(board, x, y, BLACK);
-    board[y][x] = EMPTY; // 恢复空位
+    const opponentTacticalScore = evaluateTacticalValue(board, x, y, BLACK);
     
-    // 攻防平衡的评分 - 调整了权重
-    const score = selfScore * 1.5 - opponentScore * 1.2;
+    // 恢复空位
+    board[y][x] = EMPTY;
     
-    if (score > bestScore) {
-      bestScore = score;
+    // 多维度评分系统
+    const offensiveValue = selfScore + selfTacticalScore * 2;
+    const defensiveValue = opponentScore + opponentTacticalScore * 1.5;
+    const positionValue = evaluatePositionBonus(x, y);
+    
+    // 综合评分 - 进攻优先但不忽视防守
+    const totalScore = offensiveValue * 1.8 - defensiveValue * 1.4 + positionValue;
+    
+    if (totalScore > bestScore) {
+      bestScore = totalScore;
       bestMove = { x, y };
     }
   }
@@ -220,6 +252,256 @@ export function evaluatePositionAdvanced(board: number[][], x: number, y: number
   const positionScore = Math.max(0, 100 - distanceToCenter * 5);
   
   return totalScore + positionScore;
+}
+
+/**
+ * 评估战术价值 - 考虑组合棋型和威胁
+ */
+export function evaluateTacticalValue(board: number[][], x: number, y: number, player: number): number {
+  let tacticalScore = 0;
+  
+  // 检查是否能形成双活三
+  const liveThrees = countLiveThrees(board, x, y, player);
+  if (liveThrees >= 2) {
+    tacticalScore += 20000; // 双活三是必胜棋型
+  } else if (liveThrees === 1) {
+    tacticalScore += 2000; // 单活三也很有价值
+  }
+  
+  // 检查是否能形成双四
+  const fours = countFours(board, x, y, player);
+  if (fours >= 2) {
+    tacticalScore += 30000; // 双四必胜
+  }
+  
+  // 检查连接性 - 是否能连接分离的棋子
+  const connectivityBonus = evaluateConnectivity(board, x, y, player);
+  tacticalScore += connectivityBonus;
+  
+  // 检查是否在关键点 - 同时威胁多个方向
+  const threatDirections = countThreatDirections(board, x, y, player);
+  tacticalScore += threatDirections * 200;
+  
+  return tacticalScore;
+}
+
+/**
+ * 评估位置奖励 - 基于棋盘位置的静态评分
+ */
+export function evaluatePositionBonus(x: number, y: number): number {
+  const centerX = Math.floor(BOARD_SIZE / 2);
+  const centerY = Math.floor(BOARD_SIZE / 2);
+  
+  // 中心区域奖励
+  const distanceToCenter = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+  let positionBonus = Math.max(0, 150 - distanceToCenter * 10);
+  
+  // 天元最高分
+  if (x === centerX && y === centerY) {
+    positionBonus += 100;
+  }
+  
+  // 边角惩罚
+  if (x <= 1 || x >= BOARD_SIZE - 2 || y <= 1 || y >= BOARD_SIZE - 2) {
+    positionBonus -= 50;
+  }
+  
+  // 次中心区域奖励
+  if (Math.abs(x - centerX) <= 2 && Math.abs(y - centerY) <= 2) {
+    positionBonus += 30;
+  }
+  
+  return positionBonus;
+}
+
+/**
+ * 计算能形成的活三数量
+ */
+function countLiveThrees(board: number[][], x: number, y: number, player: number): number {
+  let count = 0;
+  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  
+  for (const [dx, dy] of directions) {
+    const line = extractLine(board, x, y, dx, dy, 6);
+    if (isLiveThreePattern(line, player)) {
+      count++;
+    }
+  }
+  
+  return count;
+}
+
+/**
+ * 计算能形成的四连数量
+ */
+function countFours(board: number[][], x: number, y: number, player: number): number {
+  let count = 0;
+  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  
+  for (const [dx, dy] of directions) {
+    const line = extractLine(board, x, y, dx, dy, 6);
+    if (isFourPattern(line, player)) {
+      count++;
+    }
+  }
+  
+  return count;
+}
+
+/**
+ * 评估连接性 - 是否能连接分离的己方棋子
+ */
+function evaluateConnectivity(board: number[][], x: number, y: number, player: number): number {
+  let connectivityScore = 0;
+  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  
+  for (const [dx, dy] of directions) {
+    const line = extractLine(board, x, y, dx, dy, 5);
+    // 检查是否能桥接分离的棋子
+    if (canBridgeStones(line, player)) {
+      connectivityScore += 300;
+    }
+  }
+  
+  return connectivityScore;
+}
+
+/**
+ * 计算威胁方向数
+ */
+function countThreatDirections(board: number[][], x: number, y: number, player: number): number {
+  let threatCount = 0;
+  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  
+  for (const [dx, dy] of directions) {
+    const line = extractLine(board, x, y, dx, dy, 5);
+    if (hasThreatPotential(line, player)) {
+      threatCount++;
+    }
+  }
+  
+  return threatCount;
+}
+
+/**
+ * 提取指定方向的棋子序列
+ */
+function extractLine(board: number[][], x: number, y: number, dx: number, dy: number, length: number): number[] {
+  const line: number[] = [];
+  const start = Math.floor(length / 2);
+  
+  for (let i = -start; i <= start; i++) {
+    const nx = x + dx * i;
+    const ny = y + dy * i;
+    
+    if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE) {
+      if (i === 0) {
+        line.push(1); // 当前位置假设放置己方棋子
+      } else {
+        line.push(board[ny][nx]);
+      }
+    } else {
+      line.push(2); // 边界视为对方棋子
+    }
+  }
+  
+  return line;
+}
+
+/**
+ * 检查是否为活三模式
+ */
+function isLiveThreePattern(line: number[], player: number): boolean {
+  const pattern = line.map(cell => cell === player ? 1 : (cell === 0 ? 0 : 2));
+  
+  // 检查各种活三模式
+  const liveThreePatterns = [
+    [0, 1, 1, 1, 0],
+    [0, 1, 0, 1, 1, 0],
+    [0, 1, 1, 0, 1, 0]
+  ];
+  
+  for (const targetPattern of liveThreePatterns) {
+    if (matchesPattern(pattern, targetPattern)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * 检查是否为四连模式
+ */
+function isFourPattern(line: number[], player: number): boolean {
+  const pattern = line.map(cell => cell === player ? 1 : (cell === 0 ? 0 : 2));
+  
+  // 检查各种四连模式
+  const fourPatterns = [
+    [0, 1, 1, 1, 1, 0], // 活四
+    [1, 1, 1, 1, 0],    // 死四
+    [0, 1, 1, 1, 1],    // 死四
+    [1, 1, 0, 1, 1],    // 跳四
+    [1, 0, 1, 1, 1]     // 跳四
+  ];
+  
+  for (const targetPattern of fourPatterns) {
+    if (matchesPattern(pattern, targetPattern)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * 检查是否能桥接分离的棋子
+ */
+function canBridgeStones(line: number[], player: number): boolean {
+  const pattern = line.map(cell => cell === player ? 1 : (cell === 0 ? 0 : 2));
+  
+  // 检查桥接模式：1_0_1（两个己方棋子中间有空隙）
+  for (let i = 0; i < pattern.length - 2; i++) {
+    if (pattern[i] === 1 && pattern[i + 1] === 0 && pattern[i + 2] === 1) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * 检查是否有威胁潜力
+ */
+function hasThreatPotential(line: number[], player: number): boolean {
+  const pattern = line.map(cell => cell === player ? 1 : (cell === 0 ? 0 : 2));
+  
+  // 计算己方棋子数量和空位数量
+  const ownStones = pattern.filter(cell => cell === 1).length;
+  const emptySpaces = pattern.filter(cell => cell === 0).length;
+  
+  // 如果有2个以上己方棋子且有空位，认为有威胁潜力
+  return ownStones >= 2 && emptySpaces >= 2;
+}
+
+/**
+ * 检查模式是否匹配
+ */
+function matchesPattern(line: number[], targetPattern: number[]): boolean {
+  if (line.length < targetPattern.length) return false;
+  
+  for (let i = 0; i <= line.length - targetPattern.length; i++) {
+    let matches = true;
+    for (let j = 0; j < targetPattern.length; j++) {
+      if (line[i + j] !== targetPattern[j]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return true;
+  }
+  
+  return false;
 }
 
 /**
