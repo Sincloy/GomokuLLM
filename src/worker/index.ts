@@ -352,7 +352,7 @@ async function callAnthropic(systemPrompt: string, userPrompt: string, env: Env)
   }
   
   return await anthropic.messages.create({
-    model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
+    model: env.GOMOKU_AI_MODEL || 'claude-sonnet-4-5',
     system: systemPrompt,
     messages: [{role: "user", content: userPrompt}],
     max_tokens: maxTokens,
