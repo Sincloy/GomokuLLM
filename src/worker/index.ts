@@ -100,15 +100,15 @@ async function handleMoveAPI(request: Request, env: Env): Promise<Response> {
   try {
     // Parse request body
     const data = await request.json();
-    const { board, difficulty } = data;
+    const { board, difficulty, moveHistory, gameId } = data;
 
     // Validate request parameters
     if (!board || !Array.isArray(board) || board.length !== 15) {
       return new Response('Invalid board data', { status: 400 });
     }
 
-    // Calculate AI move
-    const moveResult = await calculateAIMove(board, difficulty, env);
+    // Calculate AI move with history context
+    const moveResult = await calculateAIMove(board, difficulty, env, moveHistory, gameId);
 
     const response: any = {
       success: true,
@@ -146,9 +146,15 @@ async function handleMoveAPI(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Calculate AI move
+ * Calculate AI move with enhanced context
  */
-async function calculateAIMove(board: number[][], difficulty: Difficulty, env: Env): Promise<{ x: number, y: number, info?: string}> {
+async function calculateAIMove(
+  board: number[][], 
+  difficulty: Difficulty, 
+  env: Env, 
+  moveHistory?: string[], 
+  gameId?: string
+): Promise<{ x: number, y: number, info?: string}> {
   // Use different strategies based on difficulty
   if (difficulty === 'easy') {
     const move = calculateSimpleMove(board);
@@ -166,7 +172,7 @@ async function calculateAIMove(board: number[][], difficulty: Difficulty, env: E
     // For hard difficulty, use LLM API if available
     if (env.GOMOKU_AI_API_KEY) {
       try {
-        return await calculateLLMMove(board, env);
+        return await calculateLLMMove(board, env, moveHistory, gameId);
       } catch (error) {
         console.error('LLM API error:', error);
         // 如果LLM API失败，回退到中等难度
@@ -190,9 +196,6 @@ async function calculateAIMove(board: number[][], difficulty: Difficulty, env: E
  * Calculate move using simple strategy
  */
 function calculateSimpleMove(board: number[][]): { x: number, y: number } {
-  const EMPTY = 0;
-  const BLACK = 1;
-  const WHITE = 2;
   const BOARD_SIZE = 15;
   
   // Check for blocking moves
@@ -227,9 +230,14 @@ function calculateSimpleMove(board: number[][]): { x: number, y: number } {
 }
 
 /**
- * Calculate move using LLM API
+ * Calculate move using LLM API with enhanced context
  */
-async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: number, y: number, info?: string }> {
+async function calculateLLMMove(
+  board: number[][], 
+  env: Env, 
+  moveHistory?: string[], 
+  gameId?: string
+): Promise<{ x: number, y: number, info?: string }> {
   const boardAnalysis = analyzeBoard(board);
 
   if (boardAnalysis.shouldSurrender) {
@@ -245,13 +253,15 @@ async function calculateLLMMove(board: number[][], env: Env): Promise<{ x: numbe
     row.map(cell => cell === 0 ? '#' : cell === 1 ? 'X' : 'O').join(' ')
   ).join('\n');
   
-  // 创建增强的提示，包括棋盘分析结果
-  let prompt = `你是五子棋AI助手。你必须清楚五子棋的规则，以及五子棋获胜的诀窍。请分析下面的棋盘状态，并给出白棋(O)的最佳落子位置。
+  // 统计当前回合数
+  const totalStones = board.flat().filter(cell => cell !== 0).length;
+  const currentTurn = Math.floor(totalStones / 2) + 1;
   
-棋盘说明：15*15的棋盘，左上角为(0,0)，X代表黑棋，O代表白棋，#代表空位
-
-棋盘状态:
-${boardRepresentation}
+  // 创建专业的系统指令和上下文
+  const systemPrompt = createAdvancedSystemPrompt();
+  const gameContext = createGameContext(board, boardAnalysis, currentTurn, moveHistory, gameId);
+  
+  let prompt = `${gameContext}
 
 `;
 
@@ -293,13 +303,13 @@ ${boardAnalysis.topMoves.slice(0, 5).map((move, index) =>
   
   const aiProvider = env.GOMOKU_AI_PROVIDER?.toLowerCase() || 'anthropic';
 
-  // Call LLM API (using Anthropic Claude API as an example)
+  // Call LLM API with enhanced context
   try {
     let response;
     if (aiProvider === 'openai') {
-      response = await callOpenAI(prompt, env);
+      response = await callOpenAI(systemPrompt, prompt, env);
     } else {
-      response = await callAnthropic(prompt, env);
+      response = await callAnthropic(systemPrompt, prompt, env);
     }
 
     const move = parseAIResponse(response);
@@ -323,7 +333,7 @@ ${boardAnalysis.topMoves.slice(0, 5).map((move, index) =>
 /**
  * 调用Anthropic Claude API
  */
-async function callAnthropic(prompt: string, env: Env): Promise<any> {  
+async function callAnthropic(systemPrompt: string, userPrompt: string, env: Env): Promise<any> {  
   const anthropic = new Anthropic({
     apiKey: env.GOMOKU_AI_API_KEY || '',
     baseURL: env.GOMOKU_AI_BASE_URL || "https://gateway.ai.cloudflare.com/v1/1e12109eb2e474efbb60c50c0819e29b/gomoku-ai/anthropic",
@@ -331,22 +341,20 @@ async function callAnthropic(prompt: string, env: Env): Promise<any> {
   
   const enableThinking = env.GOMOKU_AI_THINKING_ENABLED ? 
                       env.GOMOKU_AI_THINKING_ENABLED.toLowerCase() === "true" : 
-                      false;
+                      true; // 默认启用thinking模式以获得更好的分析
 
-  let thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 10000; // 默认预算
-  let maxTokens = env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 100;
-  let temperature = env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0;
+  let thinkingBudget = env.GOMOKU_AI_THINKING_BUDGET ? parseInt(env.GOMOKU_AI_THINKING_BUDGET) : 20000; // 增加thinking预算
+  let maxTokens = env.GOMOKU_AI_MAX_TOKENS ? parseInt(env.GOMOKU_AI_MAX_TOKENS) : 200; // 增加最大token数
+  let temperature = env.GOMOKU_AI_TEMPERATURE ? parseFloat(env.GOMOKU_AI_TEMPERATURE) : 0.3; // 稍微增加创造性
   
   if (enableThinking && maxTokens <= thinkingBudget) {
     maxTokens = thinkingBudget + 5000;
   }
-  if (enableThinking){
-    temperature = 1;
-  }
   
   return await anthropic.messages.create({
-    model: env.GOMOKU_AI_MODEL || 'claude-3-7-sonnet-20250219',
-    messages: [{role: "user", content: prompt}],
+    model: env.GOMOKU_AI_MODEL || 'claude-sonnet-4-5',
+    system: systemPrompt,
+    messages: [{role: "user", content: userPrompt}],
     max_tokens: maxTokens,
     temperature: temperature,
     thinking: enableThinking ? {
@@ -360,20 +368,20 @@ async function callAnthropic(prompt: string, env: Env): Promise<any> {
 /**
  * 调用OpenAI API
  */
-async function callOpenAI(prompt: string, env: Env): Promise<any> {  
+async function callOpenAI(systemPrompt: string, userPrompt: string, env: Env): Promise<any> {  
   const openai = new OpenAI({ 
     apiKey: env.GOMOKU_OPENAI_API_KEY || '',
     baseURL: env.GOMOKU_OPENAI_BASE_URL || 'https://api.openai.com/v1'
   });
 
-  const maxTokens = env.GOMOKU_OPENAI_MAX_TOKENS ? parseInt(env.GOMOKU_OPENAI_MAX_TOKENS) : 1000;
-  const temperature = env.GOMOKU_OPENAI_TEMPERATURE ? parseFloat(env.GOMOKU_OPENAI_TEMPERATURE) : 0;
+  const maxTokens = env.GOMOKU_OPENAI_MAX_TOKENS ? parseInt(env.GOMOKU_OPENAI_MAX_TOKENS) : 1500;
+  const temperature = env.GOMOKU_OPENAI_TEMPERATURE ? parseFloat(env.GOMOKU_OPENAI_TEMPERATURE) : 0.3;
 
   const response = await openai.chat.completions.create({
-    model: env.GOMOKU_OPENAI_MODEL || 'gpt-4-turbo',
+    model: env.GOMOKU_OPENAI_MODEL || 'gpt-4o',
     messages: [
-      { role: "system", content: "你是一个五子棋专家AI助手。你只会输出坐标，不会输出其他内容。" },
-      { role: "user", content: prompt }
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
     ],
     max_tokens: maxTokens,
     temperature: temperature,
@@ -509,7 +517,126 @@ function extractCoordinatesFromText(text: string): { x: number, y: number } | nu
   return null;
 }
 
+/**
+ * 创建专业的五子棋AI系统提示
+ */
+function createAdvancedSystemPrompt(): string {
+  return `你是一位世界级五子棋大师AI，拥有深厚的五子棋理论基础和实战经验。
 
+## 你的专业特长：
+1. **战术眼光**：能够敏锐识别棋型，包括活二、死二、活三、死三、活四、死四等
+2. **战略思维**：理解开局、中局、残局的不同特点和策略重点
+3. **计算能力**：能够进行多步计算，预见对手可能的应对
+4. **形势判断**：准确评估当前局势，判断攻守转换时机
+
+## 五子棋核心原理：
+- **进攻优先**：五子棋是先手优势游戏，积极进攻比被动防守更有效
+- **禁手规则**：注意黑棋禁手（双活三、双四、长连），但你执白棋无此限制
+- **连接与阻断**：既要连接自己的棋子，又要阻断对手的连线
+- **中心控制**：控制棋盘中心区域，获得更多发展空间
+
+## 关键棋型价值评估：
+- 五连：即胜
+- 活四：下一步必胜，最高优先级
+- 死四：需要及时形成或阻止
+- 活三：能发展成活四，重要棋型
+- 双活三：必胜棋型，需要创造或阻止
+- 死三：有限威胁，但仍需关注
+
+## 决策原则：
+1. 有胜招先胜招（形成五连）
+2. 阻止对手胜招
+3. 创造自己的活四
+4. 阻止对手活四
+5. 创造双活三
+6. 阻止对手双活三
+7. 形成活三
+8. 一般攻防平衡
+
+请基于以上专业知识分析棋局并给出最佳着法。你的回答应该仅包含坐标，格式为(x,y)。`;
+}
+
+/**
+ * 创建详细的游戏上下文
+ */
+function createGameContext(
+  board: number[][], 
+  analysis: any, 
+  currentTurn: number, 
+  moveHistory?: string[], 
+  gameId?: string
+): string {
+  const boardRepresentation = board.map(row => 
+    row.map(cell => cell === 0 ? '·' : cell === 1 ? '●' : '○').join(' ')
+  ).join('\n');
+  
+  // 生成坐标标记
+  let boardWithCoords = '   ';
+  for (let i = 0; i < 15; i++) {
+    boardWithCoords += i.toString().padStart(2, ' ') + ' ';
+  }
+  boardWithCoords += '\n';
+  
+  const rows = boardRepresentation.split('\n');
+  for (let i = 0; i < rows.length; i++) {
+    boardWithCoords += i.toString().padStart(2, ' ') + ' ' + rows[i] + '\n';
+  }
+
+  // 构建历史记录部分
+  let historySection = '';
+  if (moveHistory && moveHistory.length > 0) {
+    const recentMoves = moveHistory.slice(-10); // 显示最近10步
+    historySection = `
+
+### 近期对局历史：
+${recentMoves.map((move, index) => {
+  const moveNum = moveHistory.length - recentMoves.length + index + 1;
+  return `${moveNum}. ${move}`;
+}).join('\n')}
+${moveHistory.length > 10 ? '...（显示最近10步）' : ''}
+`;
+  }
+
+  // 构建游戏会话信息
+  let sessionInfo = '';
+  if (gameId) {
+    sessionInfo = `
+
+### 对局信息：
+- 对局ID：${gameId}
+- 当前回合：第${currentTurn}回合
+- 累计步数：${Math.floor((currentTurn - 1) * 2) + (currentTurn % 2)}步
+`;
+  }
+
+  return `## 五子棋对局分析（第${currentTurn}回合）
+${sessionInfo}
+### 棋盘布局：
+\`\`\`
+${boardWithCoords}
+\`\`\`
+
+说明：●代表黑棋(先手)，○代表白棋(你)，·代表空位
+坐标系：左上角为(0,0)，右下角为(14,14)
+${historySection}
+### 智能分析报告：
+${analysis.analysisText}
+
+### 当前局势评估：
+- **紧急程度**：${analysis.urgencyLevel}
+- **形势判断**：${analysis.urgencyReason}
+
+### 推荐着法分析：
+${analysis.topMoves.slice(0, 3).map((move: any, index: number) => 
+  `${index + 1}. 位置(${move.x},${move.y}) - 评分${move.score} - ${move.reason}`
+).join('\n')}
+
+${analysis.shouldSurrender ? 
+  `⚠️ **战略建议**：${analysis.surrenderReason}` : 
+  ''}
+
+请基于上述专业分析，结合你的五子棋大师级判断，选择最佳着法位置。`;
+}
 
 /**
  * Check if a position is threatening
